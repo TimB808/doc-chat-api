@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+openai
+pymupdf
+tiktoken
+lancedb
+pydantic
+python-multipart
