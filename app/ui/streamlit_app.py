@@ -26,7 +26,7 @@ if uploaded_file is not None:
     files = {"file": (uploaded_file.name, uploaded_file, "application/pdf")}
     with st.spinner("Uploading..."):
         try:
-            res = requests.post(f"{API_URL}/upload", files=files)
+            res = requests.post(f"{API_URL}/api/upload", files=files)
             res.raise_for_status()
             file_id = res.json().get("file_id")
             if file_id:
@@ -47,7 +47,7 @@ if st.session_state["file_id"]:
         with st.spinner("Getting answer..."):
             try:
                 payload = {"file_id": st.session_state["file_id"], "question": question}
-                res = requests.post(f"{API_URL}/chat", json=payload)
+                res = requests.post(f"{API_URL}/api/chat", json=payload)
                 res.raise_for_status()
                 data = res.json()
                 answer = data.get("answer", "No answer returned.")
@@ -58,9 +58,9 @@ if st.session_state["file_id"]:
                     st.markdown("---")
                     st.markdown("#### 🔍 Context Chunks:")
                     for i, chunk in enumerate(context_chunks, 1):
-                        st.markdown(f"**Chunk {i}:**\n```
+                        st.markdown(f"""**Chunk {i}:**\n```
 {chunk}
-```")
+```""")
             except Exception as e:
                 st.error(f"Error: {e}")
 else:
