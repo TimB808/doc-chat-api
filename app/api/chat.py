@@ -4,14 +4,19 @@ from typing import List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, confloat
 import openai
-from openai.error import OpenAIError
+from openai import OpenAIError, OpenAI
+from dotenv import load_dotenv
 
 from app.core.vector_store import query_embeddings, SearchResult
 
 # Configure OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
+load_dotenv()
+
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
     raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+client = OpenAI(api_key=api_key)
 
 router = APIRouter()
 
@@ -30,11 +35,12 @@ class ChatResponse(BaseModel):
 def get_embedding(text: str) -> List[float]:
     """Get embedding from OpenAI API."""
     try:
-        response = openai.Embedding.create(
+        response = client.embeddings.create(
             input=text,
             model="text-embedding-ada-002"
         )
-        return response["data"][0]["embedding"]
+        embedding = response.data[0].embedding
+        return embedding
     except OpenAIError as e:
         raise HTTPException(
             status_code=500,
@@ -44,22 +50,17 @@ def get_embedding(text: str) -> List[float]:
 def get_chat_completion(context: str, question: str) -> str:
     """Get chat completion from OpenAI API."""
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {
-                    "role": "system", 
-                    "content": "You are a helpful assistant answering questions based on the provided document."
-                },
-                {
-                    "role": "user", 
-                    "content": f"{context}\n\nQuestion: {question}"
-                }
+                {"role": "system", "content": "You are a helpful assistant..."},
+                {"role": "user", "content": "..." }
             ],
             temperature=0.7,
             max_tokens=500
         )
-        return response.choices[0].message.content
+        answer = response.choices[0].message.content
+        return answer
     except OpenAIError as e:
         raise HTTPException(
             status_code=500,

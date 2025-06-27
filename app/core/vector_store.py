@@ -14,89 +14,68 @@ class SearchResult(TypedDict):
     score: float
 
 def store_embeddings(file_id: str, embeddings: List[Dict]) -> None:
-    """Store document embeddings in LanceDB.
-    
-    Args:
-        file_id: Unique identifier for the document
-        embeddings: List of dicts containing text chunks and their embeddings
-                   Each dict has format: {'text': str, 'embedding': List[float]}
-    """
-    # Create data directory if it doesn't exist
+    """Store document embeddings in LanceDB, using inferred schema."""
+    import os
+    import lancedb
+
     os.makedirs(LANCEDB_PATH, exist_ok=True)
-    
-    # Connect to LanceDB
     db = lancedb.connect(LANCEDB_PATH)
-    
-    # Convert embeddings to format expected by LanceDB
+
+    # Prepare data
     data = [
         {
             "text": item["text"],
-            "embedding": np.array(item["embedding"], dtype=np.float32),
+            "vector": [float(x) for x in item["embedding"]],
             "file_id": file_id
         }
         for item in embeddings
     ]
-    
-    try:
-        # Try to get existing table
+
+    if not data:
+        raise ValueError("No embeddings provided")
+
+    if EMBEDDINGS_TABLE not in db.table_names():
+        # ✅ Let LanceDB infer schema
+        db.create_table(EMBEDDINGS_TABLE, data=data, mode="create")
+    else:
         table = db.open_table(EMBEDDINGS_TABLE)
-        # Add new embeddings to existing table
         table.add(data)
-    except FileNotFoundError:
-        # Table doesn't exist, create it
-        db.create_table(
-            EMBEDDINGS_TABLE,
-            data=data,
-            mode="create"
-        )
+
+
 
 def query_embeddings(question_embedding: List[float], file_id: Optional[str] = None, top_k: int = 5) -> List[SearchResult]:
-    """Query document embeddings to find most relevant text chunks.
-    
-    Args:
-        question_embedding: Embedding vector of the question
-        file_id: Optional file ID to filter results by specific document
-        top_k: Number of results to return (default: 5)
-        
-    Returns:
-        List of dicts containing text chunks and their similarity scores
-    """
-    # Connect to LanceDB
+    """Query document embeddings to find most relevant text chunks."""
+    import lancedb
+    import numpy as np
+
     db = lancedb.connect(LANCEDB_PATH)
-    
-    # Open embeddings table
     table = db.open_table(EMBEDDINGS_TABLE)
-    
-    # Convert embedding to numpy array
-    query_vector = np.array(question_embedding, dtype=np.float32)
-    
-    # Build search query
-    search_query = table.search(query_vector)
-    
-    # Add file_id filter if provided
+
+    query_vector = [float(x) for x in question_embedding]  # Force raw list to avoid shape issues
+    search_query = table.search(query_vector, vector_column_name="vector")
+
     if file_id:
         search_query = search_query.where(f"file_id = '{file_id}'")
-    
-    # Execute search
+
     results = (
         search_query
         .limit(top_k)
-        .select(["text", "_distance"])
+        .to_arrow()
         .to_pandas()
     )
-    
-    # Handle empty results
+
     if results.empty:
         return []
-    
-    # Convert distance scores to similarity scores (1 = most similar, 0 = least similar)
-    results["score"] = 1 - results["_distance"]
-    
-    # Convert to list of dicts and ensure Python native types for JSON serialization
+
+    # Use whichever column LanceDB provides for similarity
+    if "score" in results.columns:
+        results["relevance"] = results["score"]
+    elif "_distance" in results.columns:
+        results["relevance"] = 1 - results["_distance"]
+    else:
+        raise ValueError("No similarity score found in results. Expected 'score' or '_distance'.")
+
     return [
-        {
-            "text": str(row["text"]),
-            "score": float(row["score"])
-        }
+        {"text": str(row["text"]), "score": float(row["relevance"])}
         for _, row in results.iterrows()
     ]

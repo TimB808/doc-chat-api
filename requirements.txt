@@ -1,8 +1,12 @@
 fastapi
 uvicorn[standard]
-openai
+openai==1.82.0
 pymupdf
 tiktoken
-lancedb
-pydantic
+lancedb==0.4.4
+pyarrow==16.0.0
+numpy==1.24.4
+pandas
+pydantic>=2.0
 python-multipart
+python-dotenv

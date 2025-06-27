@@ -1,6 +1,4 @@
-#!/bin/sh
-'''exec' "/home/tim/code/TimB808/public repos/doc-chat-api/venv/bin/python3" "$0" "$@"
-' '''
+#!/home/tim/code/TimB808/public-repos/doc-chat-api/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

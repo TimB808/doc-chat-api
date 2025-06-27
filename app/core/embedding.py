@@ -1,17 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 import os
-api_key = os.getenv("OPENAI_API_KEY")
-
-import os
 import tiktoken
-import openai
-from dotenv import load_dotenv
+from openai import OpenAI
 
-load_dotenv()
-
-# Load OpenAI API key from .env
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Use tiktoken tokenizer (for OpenAI models)
 ENCODING_NAME = "cl100k_base"  # suitable for text-embedding-ada-002
@@ -43,11 +37,11 @@ def get_embeddings(chunks: list[str]) -> list[dict]:
     """
     results = []
     for chunk in chunks:
-        response = openai.Embedding.create(
+        response = client.embeddings.create(
             input=chunk,
             model="text-embedding-ada-002"
         )
-        embedding = response["data"][0]["embedding"]
+        embedding = response.data[0].embedding
         results.append({
             "text": chunk,
             "embedding": embedding
