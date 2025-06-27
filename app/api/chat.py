@@ -48,24 +48,41 @@ def get_embedding(text: str) -> List[float]:
         )
 
 def get_chat_completion(context: str, question: str) -> str:
-    """Get chat completion from OpenAI API."""
+    """Get chat completion from OpenAI API based on document context."""
     try:
+        system_prompt = (
+            "You are a helpful assistant that answers questions about documents. "
+            "You are given relevant text chunks from a document and a user question. "
+            "Use the chunks to answer the question as accurately as possible. "
+            "If the answer isn't in the document, say so clearly."
+        )
+
+        user_prompt = (
+            f"Context:\n{context}\n\n"
+            f"Question:\n{question}"
+        )
+
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant..."},
-                {"role": "user", "content": "..." }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
-            temperature=0.7,
+            temperature=0.3,
             max_tokens=500
         )
-        answer = response.choices[0].message.content
-        return answer
+
+        if not response.choices:
+            return "Sorry, I couldn't generate a response — the model returned no answer."
+
+        return response.choices[0].message.content.strip()
+
     except OpenAIError as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error getting chat completion from OpenAI: {str(e)}"
         )
+
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
@@ -99,8 +116,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 detail=f"No relevant content found for file_id: {request.file_id}"
             )
         
-        # 3. Build context string
-        context_text = "\n\n".join(chunk["text"] for chunk in context_chunks)
+        # 3. Build context string (truncate to fit GPT token limits)
+        context_text = "\n\n".join(chunk["text"] for chunk in context_chunks)[:12000]
         
         # 4. Get completion from OpenAI
         answer = get_chat_completion(context_text, request.question)
