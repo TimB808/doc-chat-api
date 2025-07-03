@@ -3,6 +3,7 @@ A FastAPI chatbot app that lets users upload PDFs and ask questions about the co
 
 ## Project structure
 
+```
 root/
 ├── app/
 │   ├── main.py
@@ -20,9 +21,6 @@ root/
 │   ├── pdfs/
 │   └── lancedb/
 │       └── document_embeddings.lance/
-├── .git/
-├── .mypy_cache/
-├── .ruff_cache/
 ├── venv/
 ├── README.md
 ├── requirements.txt
@@ -31,6 +29,7 @@ root/
 ├── .gitignore
 ├── start.sh
 └── Makefile
+```
 
 ## 🚀 Usage
 
