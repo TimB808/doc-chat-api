@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from app.api import upload, chat
+
+from app.api import chat, upload
 
 app = FastAPI()
 

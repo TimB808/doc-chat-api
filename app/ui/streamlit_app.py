@@ -1,16 +1,20 @@
 import os
-import streamlit as st
+
 import requests
+import streamlit as st
 
 # Set API URL from environment variable or fallback
 API_URL = os.getenv("DOC_CHAT_API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Doc Chat", layout="centered")
 st.title("📄 Doc Chat: PDF Q&A Demo")
-st.markdown("""
+st.markdown(
+    """
 Welcome! Upload a PDF, ask questions, and get answers with context from the document. <br>
 **Powered by doc-chat-api**
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # Session state for file_id
 if "file_id" not in st.session_state:
@@ -41,7 +45,9 @@ if uploaded_file is not None:
 # --- Q&A Section ---
 st.header("2. Ask a question")
 if st.session_state["file_id"]:
-    st.markdown(f"**Current file:** `{st.session_state['file_name']}` (ID: `{st.session_state['file_id']}`)")
+    st.markdown(
+        f"**Current file:** `{st.session_state['file_name']}` (ID: `{st.session_state['file_id']}`)"
+    )
     question = st.text_input("Enter your question about the PDF:")
     if st.button("Ask") and question:
         with st.spinner("Getting answer..."):
@@ -58,13 +64,17 @@ if st.session_state["file_id"]:
                     st.markdown("---")
                     st.markdown("#### 🔍 Context Chunks:")
                     for i, chunk in enumerate(context_chunks, 1):
-                        st.markdown(f"""**Chunk {i}:**\n```
+                        st.markdown(
+                            f"""**Chunk {i}:**\n```
 {chunk}
-```""")
+```"""
+                        )
             except Exception as e:
                 st.error(f"Error: {e}")
 else:
     st.info("Please upload a PDF to begin.")
 
 st.markdown("---")
-st.caption("Made with ❤️ for recruiters and devs. [GitHub](https://github.com/TimB808/doc-chat-api)") 
+st.caption(
+    "Made with ❤️ for recruiters and devs. [GitHub](https://github.com/TimB808/doc-chat-api)"
+)

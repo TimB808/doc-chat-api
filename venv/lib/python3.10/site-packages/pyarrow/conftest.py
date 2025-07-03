@@ -23,154 +23,169 @@ from pyarrow import fs
 import numpy as np
 
 groups = [
-    'acero',
-    'azure',
-    'brotli',
-    'bz2',
-    'cython',
-    'dataset',
-    'hypothesis',
-    'fastparquet',
-    'gandiva',
-    'gcs',
-    'gdb',
-    'gzip',
-    'hdfs',
-    'large_memory',
-    'lz4',
-    'memory_leak',
-    'nopandas',
-    'orc',
-    'pandas',
-    'parquet',
-    'parquet_encryption',
-    's3',
-    'snappy',
-    'substrait',
-    'flight',
-    'slow',
-    'requires_testing_data',
-    'zstd',
+    "acero",
+    "azure",
+    "brotli",
+    "bz2",
+    "cython",
+    "dataset",
+    "hypothesis",
+    "fastparquet",
+    "gandiva",
+    "gcs",
+    "gdb",
+    "gzip",
+    "hdfs",
+    "large_memory",
+    "lz4",
+    "memory_leak",
+    "nopandas",
+    "orc",
+    "pandas",
+    "parquet",
+    "parquet_encryption",
+    "s3",
+    "snappy",
+    "substrait",
+    "flight",
+    "slow",
+    "requires_testing_data",
+    "zstd",
 ]
 
 defaults = {
-    'acero': False,
-    'azure': False,
-    'brotli': Codec.is_available('brotli'),
-    'bz2': Codec.is_available('bz2'),
-    'cython': False,
-    'dataset': False,
-    'fastparquet': False,
-    'flight': False,
-    'gandiva': False,
-    'gcs': False,
-    'gdb': True,
-    'gzip': Codec.is_available('gzip'),
-    'hdfs': False,
-    'hypothesis': False,
-    'large_memory': False,
-    'lz4': Codec.is_available('lz4'),
-    'memory_leak': False,
-    'nopandas': False,
-    'orc': False,
-    'pandas': False,
-    'parquet': False,
-    'parquet_encryption': False,
-    'requires_testing_data': True,
-    's3': False,
-    'slow': False,
-    'snappy': Codec.is_available('snappy'),
-    'substrait': False,
-    'zstd': Codec.is_available('zstd'),
+    "acero": False,
+    "azure": False,
+    "brotli": Codec.is_available("brotli"),
+    "bz2": Codec.is_available("bz2"),
+    "cython": False,
+    "dataset": False,
+    "fastparquet": False,
+    "flight": False,
+    "gandiva": False,
+    "gcs": False,
+    "gdb": True,
+    "gzip": Codec.is_available("gzip"),
+    "hdfs": False,
+    "hypothesis": False,
+    "large_memory": False,
+    "lz4": Codec.is_available("lz4"),
+    "memory_leak": False,
+    "nopandas": False,
+    "orc": False,
+    "pandas": False,
+    "parquet": False,
+    "parquet_encryption": False,
+    "requires_testing_data": True,
+    "s3": False,
+    "slow": False,
+    "snappy": Codec.is_available("snappy"),
+    "substrait": False,
+    "zstd": Codec.is_available("zstd"),
 }
 
 try:
     import cython  # noqa
-    defaults['cython'] = True
+
+    defaults["cython"] = True
 except ImportError:
     pass
 
 try:
     import fastparquet  # noqa
-    defaults['fastparquet'] = True
+
+    defaults["fastparquet"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.gandiva  # noqa
-    defaults['gandiva'] = True
+
+    defaults["gandiva"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.acero  # noqa
-    defaults['acero'] = True
+
+    defaults["acero"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.dataset  # noqa
-    defaults['dataset'] = True
+
+    defaults["dataset"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.orc  # noqa
-    defaults['orc'] = True
+
+    defaults["orc"] = True
 except ImportError:
     pass
 
 try:
     import pandas  # noqa
-    defaults['pandas'] = True
+
+    defaults["pandas"] = True
 except ImportError:
-    defaults['nopandas'] = True
+    defaults["nopandas"] = True
 
 try:
     import pyarrow.parquet  # noqa
-    defaults['parquet'] = True
+
+    defaults["parquet"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.parquet.encryption  # noqa
-    defaults['parquet_encryption'] = True
+
+    defaults["parquet_encryption"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.flight  # noqa
-    defaults['flight'] = True
+
+    defaults["flight"] = True
 except ImportError:
     pass
 
 try:
     from pyarrow.fs import AzureFileSystem  # noqa
-    defaults['azure'] = True
+
+    defaults["azure"] = True
 except ImportError:
     pass
 
 try:
     from pyarrow.fs import GcsFileSystem  # noqa
-    defaults['gcs'] = True
+
+    defaults["gcs"] = True
 except ImportError:
     pass
 
 try:
     from pyarrow.fs import S3FileSystem  # noqa
-    defaults['s3'] = True
+
+    defaults["s3"] = True
 except ImportError:
     pass
 
 try:
     from pyarrow.fs import HadoopFileSystem  # noqa
-    defaults['hdfs'] = True
+
+    defaults["hdfs"] = True
 except ImportError:
     pass
 
 try:
     import pyarrow.substrait  # noqa
-    defaults['substrait'] = True
+
+    defaults["substrait"] = True
 except ImportError:
     pass
 
@@ -183,33 +198,35 @@ def pytest_ignore_collect(path, config):
             return True
 
         doctest_groups = [
-            'dataset',
-            'orc',
-            'parquet',
-            'flight',
-            'substrait',
+            "dataset",
+            "orc",
+            "parquet",
+            "flight",
+            "substrait",
         ]
 
         # handle cuda, flight, etc
         for group in doctest_groups:
-            if 'pyarrow/{}'.format(group) in str(path):
+            if "pyarrow/{}".format(group) in str(path):
                 if not defaults[group]:
                     return True
 
-        if 'pyarrow/parquet/encryption' in str(path):
-            if not defaults['parquet_encryption']:
+        if "pyarrow/parquet/encryption" in str(path):
+            if not defaults["parquet_encryption"]:
                 return True
 
-        if 'pyarrow/cuda' in str(path):
+        if "pyarrow/cuda" in str(path):
             try:
                 import pyarrow.cuda  # noqa
+
                 return False
             except ImportError:
                 return True
 
-        if 'pyarrow/fs' in str(path):
+        if "pyarrow/fs" in str(path):
             try:
                 from pyarrow.fs import S3FileSystem  # noqa
+
                 return False
             except ImportError:
                 return True
@@ -234,7 +251,7 @@ def _docdir(request):
     if doctest_m or doctest_c:
 
         # Get the fixture dynamically by its name.
-        tmpdir = request.getfixturevalue('tmpdir')
+        tmpdir = request.getfixturevalue("tmpdir")
 
         # Chdir only for the duration of the test.
         with tmpdir.as_cwd():
@@ -258,9 +275,9 @@ def add_fs(doctest_namespace, request, tmp_path):
 
         # Creation of an object and file with data
         local = fs.LocalFileSystem()
-        path = tmp_path / 'pyarrow-fs-example.dat'
+        path = tmp_path / "pyarrow-fs-example.dat"
         with local.open_output_stream(str(path)) as stream:
-            stream.write(b'data')
+            stream.write(b"data")
         doctest_namespace["local"] = local
         doctest_namespace["local_path"] = str(tmp_path)
         doctest_namespace["path"] = str(path)
@@ -276,16 +293,13 @@ def unary_func_fixture():
     from pyarrow import compute as pc
 
     def unary_function(ctx, x):
-        return pc.call_function("add", [x, 1],
-                                memory_pool=ctx.memory_pool)
+        return pc.call_function("add", [x, 1], memory_pool=ctx.memory_pool)
+
     func_name = "y=x+1"
-    unary_doc = {"summary": "add function",
-                 "description": "test add function"}
-    pc.register_scalar_function(unary_function,
-                                func_name,
-                                unary_doc,
-                                {"array": pa.int64()},
-                                pa.int64())
+    unary_doc = {"summary": "add function", "description": "test add function"}
+    pc.register_scalar_function(
+        unary_function, func_name, unary_doc, {"array": pa.int64()}, pa.int64()
+    )
     return unary_function, func_name
 
 
@@ -300,17 +314,17 @@ def unary_agg_func_fixture():
         return pa.scalar(np.nanmean(x))
 
     func_name = "mean_udf"
-    func_doc = {"summary": "y=avg(x)",
-                "description": "find mean of x"}
+    func_doc = {"summary": "y=avg(x)", "description": "find mean of x"}
 
-    pc.register_aggregate_function(func,
-                                   func_name,
-                                   func_doc,
-                                   {
-                                       "x": pa.float64(),
-                                   },
-                                   pa.float64()
-                                   )
+    pc.register_aggregate_function(
+        func,
+        func_name,
+        func_doc,
+        {
+            "x": pa.float64(),
+        },
+        pa.float64(),
+    )
     return func, func_name
 
 
@@ -328,16 +342,9 @@ def varargs_agg_func_fixture():
         return pa.scalar(sum)
 
     func_name = "sum_mean"
-    func_doc = {"summary": "Varargs aggregate",
-                "description": "Varargs aggregate"}
+    func_doc = {"summary": "Varargs aggregate", "description": "Varargs aggregate"}
 
-    pc.register_aggregate_function(func,
-                                   func_name,
-                                   func_doc,
-                                   {
-                                       "x": pa.int64(),
-                                       "y": pa.float64()
-                                   },
-                                   pa.float64()
-                                   )
+    pc.register_aggregate_function(
+        func, func_name, func_doc, {"x": pa.int64(), "y": pa.float64()}, pa.float64()
+    )
     return func, func_name

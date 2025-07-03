@@ -4,7 +4,7 @@ run-backend:
 	uvicorn app.main:app --reload --port 8000
 
 run-ui:
-	streamlit run streamlit_app.py
+	streamlit run app/ui/streamlit_app.py
 
 lint:
 	ruff check .

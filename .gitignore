@@ -5,6 +5,10 @@ __pycache__/
 
 # Data
 data/pdfs/
+data/lancedb/
+
+# Ignore virtual environments
+venv/
 
 # VSCode
 .vscode/

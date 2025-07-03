@@ -27,12 +27,12 @@ import pytest
 
 all_types = st.deferred(
     lambda: (
-        past.signed_integer_types |
-        past.unsigned_integer_types |
-        past.floating_types |
-        past.bool_type |
-        past.string_type |
-        past.large_string_type
+        past.signed_integer_types
+        | past.unsigned_integer_types
+        | past.floating_types
+        | past.bool_type
+        | past.string_type
+        | past.large_string_type
     )
 )
 
@@ -52,35 +52,28 @@ def test_dtypes(arr):
 
 
 @pytest.mark.parametrize(
-    "uint, uint_bw",
+    "uint, uint_bw", [(pa.uint8(), 8), (pa.uint16(), 16), (pa.uint32(), 32)]
+)
+@pytest.mark.parametrize(
+    "int, int_bw",
+    [(pa.int8(), 8), (pa.int16(), 16), (pa.int32(), 32), (pa.int64(), 64)],
+)
+@pytest.mark.parametrize(
+    "float, float_bw, np_float",
     [
-        (pa.uint8(), 8),
-        (pa.uint16(), 16),
-        (pa.uint32(), 32)
-    ]
-)
-@pytest.mark.parametrize(
-    "int, int_bw", [
-        (pa.int8(), 8),
-        (pa.int16(), 16),
-        (pa.int32(), 32),
-        (pa.int64(), 64)
-    ]
-)
-@pytest.mark.parametrize(
-    "float, float_bw, np_float", [
         (pa.float16(), 16, np.float16),
         (pa.float32(), 32, np.float32),
-        (pa.float64(), 64, np.float64)
-    ]
+        (pa.float64(), 64, np.float64),
+    ],
 )
-@pytest.mark.parametrize("unit", ['s', 'ms', 'us', 'ns'])
-@pytest.mark.parametrize("tz", ['', 'America/New_York', '+07:30', '-04:30'])
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+@pytest.mark.parametrize("tz", ["", "America/New_York", "+07:30", "-04:30"])
 @pytest.mark.parametrize("use_batch", [False, True])
-def test_mixed_dtypes(uint, uint_bw, int, int_bw,
-                      float, float_bw, np_float, unit, tz,
-                      use_batch):
+def test_mixed_dtypes(
+    uint, uint_bw, int, int_bw, float, float_bw, np_float, unit, tz, use_batch
+):
     from datetime import datetime as dt
+
     arr = [1, 2, 3]
     dt_arr = [dt(2007, 7, 13), dt(2007, 7, 14), dt(2007, 7, 15)]
     table = pa.table(
@@ -90,7 +83,7 @@ def test_mixed_dtypes(uint, uint_bw, int, int_bw,
             "c": pa.array(np.array(arr, dtype=np_float), type=float),
             "d": [True, False, True],
             "e": ["a", "", "c"],
-            "f": pa.array(dt_arr, type=pa.timestamp(unit, tz=tz))
+            "f": pa.array(dt_arr, type=pa.timestamp(unit, tz=tz)),
         }
     )
     if use_batch:
@@ -133,10 +126,9 @@ def test_noncategorical():
 @pytest.mark.parametrize("use_batch", [False, True])
 def test_categorical(use_batch):
     import pyarrow as pa
+
     arr = ["Mon", "Tue", "Mon", "Wed", "Mon", "Thu", "Fri", "Sat", None]
-    table = pa.table(
-        {"weekday": pa.array(arr).dictionary_encode()}
-    )
+    table = pa.table({"weekday": pa.array(arr).dictionary_encode()})
     if use_batch:
         table = table.to_batches()[0]
 
@@ -149,9 +141,10 @@ def test_categorical(use_batch):
 @pytest.mark.parametrize("use_batch", [False, True])
 def test_dataframe(use_batch):
     n = pa.chunked_array([[2, 2, 4], [4, 5, 100]])
-    a = pa.chunked_array([["Flamingo", "Parrot", "Cow"],
-                         ["Horse", "Brittle stars", "Centipede"]])
-    table = pa.table([n, a], names=['n_legs', 'animals'])
+    a = pa.chunked_array(
+        [["Flamingo", "Parrot", "Cow"], ["Horse", "Brittle stars", "Centipede"]]
+    )
+    table = pa.table([n, a], names=["n_legs", "animals"])
     if use_batch:
         table = table.combine_chunks().to_batches()[0]
     df = table.__dataframe__()
@@ -162,7 +155,7 @@ def test_dataframe(use_batch):
         assert df.num_chunks() == 1
     else:
         assert df.num_chunks() == 2
-    assert list(df.column_names()) == ['n_legs', 'animals']
+    assert list(df.column_names()) == ["n_legs", "animals"]
     assert list(df.select_columns((1,)).column_names()) == list(
         df.select_columns_by_name(("animals",)).column_names()
     )
@@ -193,18 +186,15 @@ def test_column_get_chunks(use_batch, size, n_chunks):
 
 
 @pytest.mark.pandas
+@pytest.mark.parametrize("uint", [pa.uint8(), pa.uint16(), pa.uint32()])
+@pytest.mark.parametrize("int", [pa.int8(), pa.int16(), pa.int32(), pa.int64()])
 @pytest.mark.parametrize(
-    "uint", [pa.uint8(), pa.uint16(), pa.uint32()]
-)
-@pytest.mark.parametrize(
-    "int", [pa.int8(), pa.int16(), pa.int32(), pa.int64()]
-)
-@pytest.mark.parametrize(
-    "float, np_float", [
+    "float, np_float",
+    [
         (pa.float16(), np.float16),
         (pa.float32(), np.float32),
-        (pa.float64(), np.float64)
-    ]
+        (pa.float64(), np.float64),
+    ],
 )
 @pytest.mark.parametrize("use_batch", [False, True])
 def test_get_columns(uint, int, float, np_float, use_batch):
@@ -214,7 +204,7 @@ def test_get_columns(uint, int, float, np_float, use_batch):
         {
             "a": pa.chunked_array(arr, type=uint),
             "b": pa.chunked_array(arr, type=int),
-            "c": pa.array(arr_float, type=float)
+            "c": pa.array(arr_float, type=float),
         }
     )
     if use_batch:
@@ -231,9 +221,7 @@ def test_get_columns(uint, int, float, np_float, use_batch):
     assert df.get_column(2).dtype[0] == 2  # FLOAT
 
 
-@pytest.mark.parametrize(
-    "int", [pa.int8(), pa.int16(), pa.int32(), pa.int64()]
-)
+@pytest.mark.parametrize("int", [pa.int8(), pa.int16(), pa.int32(), pa.int64()])
 @pytest.mark.parametrize("use_batch", [False, True])
 def test_buffer(int, use_batch):
     arr = [0, 1, -1]
@@ -269,17 +257,18 @@ def test_buffer(int, use_batch):
 
 
 @pytest.mark.parametrize(
-    "indices_type, bitwidth, f_string", [
+    "indices_type, bitwidth, f_string",
+    [
         (pa.int8(), 8, "c"),
         (pa.int16(), 16, "s"),
         (pa.int32(), 32, "i"),
-        (pa.int64(), 64, "l")
-    ]
+        (pa.int64(), 64, "l"),
+    ],
 )
 def test_categorical_dtype(indices_type, bitwidth, f_string):
     type = pa.dictionary(indices_type, pa.string())
     arr = pa.array(["a", "b", None, "d"], type)
-    table = pa.table({'a': arr})
+    table = pa.table({"a": arr})
 
     df = table.__dataframe__()
     col = df.get_column(0)

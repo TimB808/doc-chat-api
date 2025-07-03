@@ -1,10 +1,12 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from app.core.pdf_parser import extract_text_from_pdf
-from app.core.embedding import chunk_text, get_embeddings
-from app.core.vector_store import store_embeddings
 import os
 import uuid
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
+from app.core.embedding import chunk_text, get_embeddings
+from app.core.pdf_parser import extract_text_from_pdf
+from app.core.vector_store import store_embeddings
 
 router = APIRouter()
 
@@ -12,9 +14,10 @@ router = APIRouter()
 UPLOAD_DIR = "data/pdfs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 @router.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+async def upload_pdf(file: UploadFile = File(...)):  # noqa: B008
+    if file.filename is None or not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
     # Save uploaded file to disk with a unique name
@@ -33,7 +36,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Generate embeddings for the text
     chunks = chunk_text(text)
     embeddings = get_embeddings(chunks)
-    
+
     # Store embeddings in vector database
     store_embeddings(file_id, embeddings)
 
@@ -41,7 +44,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         content={
             "message": "PDF uploaded and processed successfully",
             "file_id": file_id,
-            "char_count": len(text)
+            "char_count": len(text),
         },
-        status_code=200
+        status_code=200,
     )

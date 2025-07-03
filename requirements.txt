@@ -10,3 +10,5 @@ pandas
 pydantic>=2.0
 python-multipart
 python-dotenv
+pre-commit
+types-requests

@@ -202,13 +202,13 @@ def test_large_row_encryption_decryption():
     mockfs.create_dir("/")
 
     path = "large-row-test-dataset"
-    ds.write_dataset(table, path, format=file_format,
-                     file_options=write_options, filesystem=mockfs)
+    ds.write_dataset(
+        table, path, format=file_format, file_options=write_options, filesystem=mockfs
+    )
 
     file_path = path + "/part-0.parquet"
     new_table = pq.ParquetFile(
-        file_path, decryption_properties=file_decryption_properties,
-        filesystem=mockfs
+        file_path, decryption_properties=file_decryption_properties, filesystem=mockfs
     ).read()
     assert table == new_table
 

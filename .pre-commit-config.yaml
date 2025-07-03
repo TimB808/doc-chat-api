@@ -13,7 +13,8 @@ repos:
     rev: v1.8.0
     hooks:
       - id: mypy
-        args: ["--explicit-package-bases"]
+        args: ["--explicit-package-bases", "--exclude=venv/"]
+        files: ^app/
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
