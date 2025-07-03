@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # Ignore line length for now
+exclude = ["venv"]
+
+[tool.mypy]
+exclude = 'venv'
+explicit_package_bases = true
+ignore_missing_imports = true
+python_version = "3.10"
+check_untyped_defs = true
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
