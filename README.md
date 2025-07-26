@@ -89,8 +89,8 @@ Default backend URL (after deployment): https://doc-chat-api-<PROJECT_ID>.europe
 
 Build and run the Streamlit UI container locally:
 
-```make docker-build-ui
-make docker-run-ui```
+```make docker-build-ui```
+``make docker-run-ui```
 
 This serves the UI at http://localhost:8501.
 
