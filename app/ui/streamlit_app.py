@@ -75,6 +75,4 @@ else:
     st.info("Please upload a PDF to begin.")
 
 st.markdown("---")
-st.caption(
-    "Made with ❤️ for recruiters and devs. [GitHub](https://github.com/TimB808/doc-chat-api)"
-)
+st.caption("See my GitHub repo [here](https://github.com/TimB808/doc-chat-api)")

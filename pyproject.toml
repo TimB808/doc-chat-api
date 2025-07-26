@@ -16,6 +16,7 @@ explicit_package_bases = true
 ignore_missing_imports = true
 python_version = "3.10"
 check_untyped_defs = true
+disable_error_code = ["import-untyped"]
 
 [build-system]
 requires = ["setuptools"]

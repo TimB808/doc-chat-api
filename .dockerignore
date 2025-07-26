@@ -1,14 +1,32 @@
+# Git and Docker
 .git
 .gitignore
 .dockerignore
-venv/
-.mypy_cache/
-.ruff_cache/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv/
+venv/
+*.egg-info/
+
+# Caches
+.mypy_cache/
+.ruff_cache/
 .pytest_cache/
+
+# Data (embeddings, PDFs, etc.)
 data/
+
+# Local artifacts
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Docs and build files
 README.md
 Dockerfile
