@@ -1,5 +1,5 @@
 # doc-chat-api
-A FastAPI chatbot app that lets users upload PDFs and ask questions about the content using OpenAI and LanceDB
+A FastAPI chatbot app that lets users upload PDFs and ask questions about the content using OpenAI and LanceDB. Deployed through Cloud Run [here](https://doc-chat-ui-581282400880.europe-west3.run.app/)
 
 ## Project structure
 
