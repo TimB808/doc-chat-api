@@ -10,6 +10,7 @@ root/
 │   ├── __init__.py
 │   ├── core/
 │   │   ├── vector_store.py
+│   │   ├── hybrid_search.py
 │   │   ├── pdf_parser.py
 │   │   └── embedding.py
 │   ├── ui/
@@ -146,6 +147,7 @@ Or visit the public URL, e.g.:
 | Embeddings        | OpenAI         | Text embeddings                      |
 | Tokenization      | tiktoken       | Token counting for chunking          |
 | Vector Search     | LanceDB        | Vector database                      |
+| Keyword Search    | rank-bm25      | BM25 algorithm for keyword matching  |
 | PDF Parsing       | PyMuPDF (fitz) | PDF text extraction                  |
 | Env Management    | python-dotenv  | Load secrets/config from .env        |
 | UI                | Streamlit      | Web UI                               |
@@ -156,6 +158,22 @@ uvicorn is used as the ASGI server (used in scripts, not app code)
 
 
 ## Notes
+
+### Hybrid Search
+
+The app supports **hybrid search** that combines semantic (vector) and keyword (BM25) search for improved retrieval accuracy.
+
+- **Semantic Search**: Uses OpenAI embeddings and LanceDB vector similarity to find semantically relevant content
+- **Keyword Search**: Uses BM25 (Okapi BM25) algorithm to find exact keyword matches
+- **Score Combination**: Results are combined using a weighted average:
+  ```
+  final_score = α * semantic_score + (1 - α) * bm25_score
+  ```
+  Where `α` (alpha) defaults to 0.5 and can be adjusted to balance between semantic and keyword relevance.
+
+The hybrid search automatically falls back to vector-only search if the BM25 index is unavailable. BM25 indexes are cached in memory for performance.
+
+To use hybrid search in the API, use `hybrid_search()` instead of `query_embeddings()`. See `app/api/chat.py` for usage examples.
 
 ### Similarity Scores
 
@@ -179,4 +197,4 @@ To ensure compatibility and avoid ABI conflicts in the Python data ecosystem, th
 - `lancedb==0.4.4` — a stable release compatible with fixed-size vector types
 - `numpy==1.24.4` — pinned to avoid compatibility issues with NumPy 2.x and older PyArrow/LanceDB binaries
 
-This configuration supports production-grade vector search with clean schema definitions. Future branches may upgrade to `lancedb>=0.6` and `numpy>=2.0` to take advantage of hybrid search and advanced filtering when upstream compatibility is guaranteed.
+This configuration supports production-grade vector search with clean schema definitions. The hybrid search feature (semantic + BM25 keyword matching) is now implemented using `rank-bm25` alongside LanceDB's vector search. Future branches may upgrade to `lancedb>=0.6` and `numpy>=2.0` to take advantage of native hybrid search and advanced filtering when upstream compatibility is guaranteed.

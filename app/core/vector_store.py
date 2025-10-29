@@ -1,12 +1,11 @@
 import os
-from typing import Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 import lancedb
 import numpy as np
 
-# Constants
-LANCEDB_PATH = "data/lancedb"
-EMBEDDINGS_TABLE = "document_embeddings"
+from app.core.constants import EMBEDDINGS_TABLE, LANCEDB_PATH
+from app.core.hybrid_search import hybrid_search as _hybrid_search
 
 
 class SearchResult(TypedDict):
@@ -87,3 +86,40 @@ def query_embeddings(
         {"text": str(row["text"]), "score": float(row["relevance"])}
         for _, row in df.iterrows()
     ]
+
+
+async def hybrid_search(
+    query: str,
+    question_embedding: List[float],
+    file_id: Optional[str] = None,
+    k: int = 10,
+    alpha: float = 0.5,
+) -> List[Dict[str, Any]]:
+    """Perform hybrid search combining semantic and keyword search.
+
+    This method delegates to the hybrid_search module which combines:
+    - Semantic search via LanceDB vector similarity
+    - Keyword search via BM25 (Okapi BM25 algorithm)
+
+    Args:
+        query: The search query string (used for BM25 keyword search).
+        question_embedding: The embedding vector for the query (used for semantic search).
+        file_id: Optional file ID to filter documents.
+        k: Number of top results to return. Defaults to 10.
+        alpha: Weight for semantic scores (0.5 = equal weight, higher = more semantic).
+            Defaults to 0.5. Must be between 0 and 1.
+
+    Returns:
+        List of result dictionaries with keys: 'text', 'score'.
+        Results are sorted by combined score (descending).
+
+    Note:
+        Falls back to vector-only search if BM25 index is unavailable.
+    """
+    return _hybrid_search(
+        query=query,
+        question_embedding=question_embedding,
+        file_id=file_id,
+        k=k,
+        alpha=alpha,
+    )

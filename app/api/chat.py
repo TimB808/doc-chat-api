@@ -109,6 +109,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
         question_embedding = get_embedding(request.question)
 
         # 2. Query vector store for relevant chunks
+        # Note: To use hybrid search (semantic + keyword BM25), replace query_embeddings with:
+        #   context_chunks = await hybrid_search(
+        #       query=request.question,
+        #       question_embedding=question_embedding,
+        #       file_id=request.file_id,
+        #       k=5,
+        #       alpha=0.5  # 0.5 = equal weight, higher = more semantic, lower = more keyword
+        #   )
         context_chunks = query_embeddings(
             question_embedding=question_embedding, file_id=request.file_id, top_k=5
         )

@@ -12,3 +12,4 @@ python-multipart
 python-dotenv
 pre-commit
 types-requests
+rank-bm25
