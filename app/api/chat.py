@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Annotated
 
@@ -6,7 +7,10 @@ from fastapi import APIRouter, HTTPException
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
-from app.core.vector_store import query_embeddings
+from app.core.vector_store import hybrid_search, query_embeddings
+
+logger = logging.getLogger("docchat")
+
 
 # Configure OpenAI
 load_dotenv()
@@ -23,6 +27,12 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     question: str = Field(..., description="The question to ask about the document")
     file_id: str = Field(..., description="ID of the document to query")
+    alpha: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        description="0=BM25-only, 1=semantic-only (default 0.5 = hybrid)",
+    )
 
 
 class ContextChunk(BaseModel):
@@ -44,12 +54,15 @@ class ChatResponse(BaseModel):
 def get_embedding(text: str) -> list[float]:
     """Get embedding from OpenAI API."""
     try:
-        response = client.embeddings.create(input=text, model="text-embedding-ada-002")
-        embedding = response.data[0].embedding
-        return embedding
+        response = client.embeddings.create(
+            input=text,
+            model="text-embedding-3-small",  # previously "text-embedding-ada-002"
+        )
+        return response.data[0].embedding
     except OpenAIError as e:
         raise HTTPException(
-            status_code=500, detail=f"Error getting embedding from OpenAI: {str(e)}"
+            status_code=500,
+            detail=f"Error getting embedding from OpenAI: {str(e)}",
         ) from e
 
 
@@ -97,44 +110,90 @@ def get_chat_completion(context: str, question: str) -> str:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Answer questions about a previously uploaded document."""
     try:
-        # Validate inputs
-        if request.question is None or not request.question.strip():
+        if not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
-        if request.file_id is None or not request.file_id.strip():
+        if not request.file_id.strip():
             raise HTTPException(status_code=400, detail="file_id cannot be empty")
 
-        # 1. Get embedding for the question
+        # 1) Embed the question (semantic side still needed for hybrid)
         question_embedding = get_embedding(request.question)
 
-        # 2. Query vector store for relevant chunks
-        # Note: To use hybrid search (semantic + keyword BM25), replace query_embeddings with:
-        #   context_chunks = await hybrid_search(
-        #       query=request.question,
-        #       question_embedding=question_embedding,
-        #       file_id=request.file_id,
-        #       k=5,
-        #       alpha=0.5  # 0.5 = equal weight, higher = more semantic, lower = more keyword
-        #   )
-        context_chunks = query_embeddings(
-            question_embedding=question_embedding, file_id=request.file_id, top_k=5
-        )
-
-        if not context_chunks:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No relevant content found for file_id: {request.file_id}",
+        # 2) Prefer HYBRID search; fall back to vector-only if anything fails
+        try:
+            context_chunks = await hybrid_search(
+                query=request.question,
+                question_embedding=question_embedding,
+                file_id=request.file_id,
+                k=5,
+                alpha=request.alpha,
+            )
+        except Exception as e:
+            logger.exception("hybrid_search failed; falling back to vector-only: %s", e)
+            context_chunks = query_embeddings(
+                question_embedding=question_embedding,
+                file_id=request.file_id,
+                top_k=5,
             )
 
-        # 3. Build context string (truncate to fit GPT token limits)
+        if not context_chunks:
+            # Fallback: if file-specific search returns nothing, try searching across all documents
+            try:
+                context_chunks = await hybrid_search(
+                    query=request.question,
+                    question_embedding=question_embedding,
+                    file_id=None,
+                    k=5,
+                    alpha=request.alpha,
+                )
+            except Exception:
+                # If hybrid fallback fails, try vector-only across all documents
+                context_chunks = query_embeddings(
+                    question_embedding=question_embedding,
+                    file_id=None,
+                    top_k=5,
+                )
+
+            if not context_chunks:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No relevant content found for file_id: {request.file_id}",
+                )
+
+        # Optional: debug top-5 scores while testing
+        if os.getenv("DEBUG_HYBRID") == "1" and context_chunks:
+            top = [
+                (
+                    i.get("id"),
+                    round(float(i.get("score", i.get("final_score", 0.0))), 3),
+                    i.get("title") or i.get("page"),
+                )
+                for i in context_chunks[:5]
+            ]
+            logger.debug("TOP5 (id, score, title/page): %s", top)
+
+        # 3) Build context string
         context_text = "\n\n".join(chunk["text"] for chunk in context_chunks)[:12000]
 
-        # 4. Get completion from OpenAI
+        # 4) LLM answer (keep current model for now)
         answer = get_chat_completion(context_text, request.question)
 
-        # 5. Convert context chunks to Pydantic models
-        context = [ContextChunk(**chunk) for chunk in context_chunks]
+        # 5) Pydantic response
+        def _clamp01(x: float) -> float:
+            """Ensure score is in [0,1] range for Pydantic validation."""
+            return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+        context = [
+            ContextChunk(
+                text=chunk["text"],
+                score=_clamp01(
+                    float(
+                        chunk.get("final_score") or chunk.get("score", 0.0)  # preferred
+                    )
+                ),
+            )
+            for chunk in context_chunks
+        ]
 
         return ChatResponse(answer=answer, context=context)
     except HTTPException:

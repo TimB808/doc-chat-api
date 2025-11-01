@@ -11,6 +11,8 @@ Where α (alpha) defaults to 0.5 and controls the balance between semantic and k
 """
 
 import logging
+import math
+import zlib
 from typing import TYPE_CHECKING, Any, Optional
 
 import lancedb
@@ -25,7 +27,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # In-memory cache for BM25 indexes per file_id
-_bm25_indexes: dict[str, tuple[BM25Okapi, list[list[str]], list[dict[str, Any]]]] = {}
+# Cache stores (bm25, tokenized_docs, metadata, fingerprint) tuples
+_bm25_indexes: dict[
+    str, tuple[BM25Okapi, list[list[str]], list[dict[str, Any]], int]
+] = {}
 
 
 def _tokenize(text: str) -> list[str]:
@@ -39,15 +44,8 @@ def _tokenize(text: str) -> list[str]:
 
 def _build_bm25_index(
     file_id: Optional[str] = None,
-) -> Optional[tuple[BM25Okapi, list[list[str]], list[dict[str, Any]]]]:
-    """Build BM25 index from documents in LanceDB.
-
-    Args:
-        file_id: Optional file ID to filter documents. If None, indexes all documents.
-
-    Returns:
-        Tuple of (BM25Okapi instance, tokenized documents, metadata list) or None if no documents found.
-    """
+) -> Optional[tuple[BM25Okapi, list[list[str]], list[dict[str, Any]], int]]:
+    """Build BM25 index from LanceDB, returning (bm25, tokenized_docs, metadata, fingerprint)."""
     try:
         db = lancedb.connect(LANCEDB_PATH)
         if EMBEDDINGS_TABLE not in db.table_names():
@@ -67,17 +65,16 @@ def _build_bm25_index(
             logger.warning("No documents found in LanceDB")
             return None
 
-        # Extract texts and metadata
         texts = df["text"].astype(str).tolist()
         metadata = df.to_dict("records")
 
-        # Tokenize all documents
-        tokenized_docs = [_tokenize(text) for text in texts]
+        # Fingerprint current content
+        fingerprint = zlib.crc32("".join(texts).encode("utf-8")) & 0xFFFFFFFF
 
-        # Build BM25 index
+        tokenized_docs = [_tokenize(t) for t in texts]
         bm25 = BM25Okapi(tokenized_docs)
 
-        return bm25, tokenized_docs, metadata
+        return bm25, tokenized_docs, metadata, fingerprint
 
     except Exception as e:
         logger.error(f"Error building BM25 index: {e}", exc_info=True)
@@ -87,43 +84,134 @@ def _build_bm25_index(
 def _get_or_build_bm25_index(
     file_id: Optional[str] = None,
 ) -> Optional[tuple[BM25Okapi, list[list[str]], list[dict[str, Any]]]]:
-    """Get cached BM25 index or build a new one.
-
-    Args:
-        file_id: Optional file ID to filter documents.
-
-    Returns:
-        Tuple of (BM25Okapi instance, tokenized documents, metadata list) or None.
-    """
+    """Return cached (bm25, tokenized_docs, metadata), rebuilding if content changed."""
     cache_key = file_id or "_all"
-    if cache_key not in _bm25_indexes:
-        index_data = _build_bm25_index(file_id)
-        if index_data is not None:
-            _bm25_indexes[cache_key] = index_data
-        else:
-            return None
-    return _bm25_indexes.get(cache_key)
+
+    # Load current data
+    db = lancedb.connect(LANCEDB_PATH)
+    if EMBEDDINGS_TABLE not in db.table_names():
+        return None
+    table = db.open_table(EMBEDDINGS_TABLE)
+    df = table.to_pandas()
+    if file_id:
+        df = df[df["file_id"] == file_id]
+    if df.empty:
+        return None
+
+    texts = df["text"].astype(str).tolist()
+    current_fp = zlib.crc32("".join(texts).encode("utf-8")) & 0xFFFFFFFF
+
+    cached = _bm25_indexes.get(cache_key)
+    if cached is not None:
+        bm25, tokenized, meta, cached_fp = cached
+        if cached_fp == current_fp:
+            return bm25, tokenized, meta
+
+    # (Re)build and update cache with fingerprint
+    built = _build_bm25_index(file_id)
+    if built is None:
+        return None
+    bm25_obj, tokenized_obj, meta_obj, fp = built
+    _bm25_indexes[cache_key] = (bm25_obj, tokenized_obj, meta_obj, fp)
+    return bm25_obj, tokenized_obj, meta_obj
 
 
-def _normalize_bm25_scores(scores: np.ndarray) -> np.ndarray:
-    """Normalize BM25 scores to [0, 1] range using min-max normalization.
+def _minmax_norm(scores: dict[str, float]) -> dict[str, float]:
+    """Normalize scores to [0, 1] via min–max. If all equal → neutral 0.5."""
+    if not scores:
+        return {}
+    vals = list(scores.values())
+    lo, hi = min(vals), max(vals)
+    if hi == lo:
+        return {k: 0.5 for k in scores}
+    rng = hi - lo
+    return {k: (v - lo) / rng for k, v in scores.items()}
 
-    BM25 scores are unbounded, so we normalize them to match semantic scores
-    which are typically in [0, 1] range.
 
-    Args:
-        scores: Array of BM25 scores.
+def _clamp01(x: float) -> float:
+    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
 
-    Returns:
-        Normalized scores in [0, 1] range.
+
+# --- MMR utilities ---------------------------------------------------------
+
+
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    aa = float(a @ a)
+    bb = float(b @ b)
+    if aa == 0.0 or bb == 0.0:
+        return 0.0
+    return float(a @ b) / math.sqrt(aa * bb)
+
+
+def _mmr_select(
+    vectors: list[np.ndarray], query_vec: np.ndarray, k: int, mmr_lambda: float = 0.6
+) -> list[int]:
     """
-    if len(scores) == 0:
-        return scores
-    if scores.max() == scores.min():
-        # All scores are the same, return uniform scores
-        return np.ones_like(scores) * 0.5
-    # Min-max normalization
-    return (scores - scores.min()) / (scores.max() - scores.min())
+    Maximal Marginal Relevance selection.
+    mmr_lambda in [0,1]: higher = more relevance, lower = more diversity.
+    Returns indices of selected items.
+    """
+    n = len(vectors)
+    if n == 0:
+        return []
+    k = min(k, n)
+
+    relevance = [_cosine(query_vec, v) for v in vectors]
+    selected: list[int] = []
+    used = set()
+
+    # seed with most relevant
+    first = max(range(n), key=lambda i: relevance[i])
+    selected.append(first)
+    used.add(first)
+
+    while len(selected) < k:
+        best_i = None
+        best_score = -1e9
+        for i in range(n):
+            if i in used:
+                continue
+            div = 0.0
+            for j in selected:
+                div = max(div, _cosine(vectors[i], vectors[j]))
+            mmr = mmr_lambda * relevance[i] - (1.0 - mmr_lambda) * div
+            if mmr > best_score:
+                best_score, best_i = mmr, i
+        if best_i is not None:
+            used.add(best_i)
+            selected.append(best_i)
+        else:
+            break  # No more candidates
+    return selected
+
+
+def apply_mmr_to_hits(
+    hits: list[dict], query_vector: list[float], k: int, mmr_lambda: float = 0.6
+) -> list[dict]:
+    """
+    Non-invasive wrapper to apply MMR to existing hybrid_search() results.
+
+    Expect each hit to contain:
+      - 'vector': the embedding (list[float])
+      - (optional) 'score': blended score; kept as-is
+    Returns the top-k re-ranked hits.
+    """
+    if not hits:
+        return []
+
+    qv = np.array(query_vector, dtype=np.float32)
+
+    vecs: list[np.ndarray] = []
+    for h in hits:
+        v = h.get("vector")
+        arr = np.array(v, dtype=np.float32) if v is not None else None
+        # If vector missing or wrong shape, fall back to a zero vector matching qv
+        if arr is None or arr.size != qv.size:
+            arr = np.zeros_like(qv)
+        vecs.append(arr)
+
+    keep = _mmr_select(vecs, qv, k=k, mmr_lambda=mmr_lambda)
+    return [hits[i] for i in keep]
 
 
 def _combine_scores(
@@ -146,7 +234,7 @@ def hybrid_search(
     query: str,
     question_embedding: list[float],
     file_id: Optional[str] = None,
-    k: int = 10,
+    k: int = 8,
     alpha: float = 0.5,
 ) -> list[dict[str, Any]]:
     """Perform hybrid search combining semantic and keyword search.
@@ -176,7 +264,7 @@ def hybrid_search(
     semantic_results = query_embeddings(
         question_embedding=question_embedding,
         file_id=file_id,
-        top_k=k * 2,  # Get more candidates for reranking
+        top_k=k * 4,  # Get more candidates before reranking
     )
 
     if not semantic_results:
@@ -186,59 +274,112 @@ def hybrid_search(
     bm25_data = _get_or_build_bm25_index(file_id)
     if bm25_data is None:
         logger.warning("BM25 index not available, falling back to vector-only search")
-        # Return top k semantic results, converting SearchResult to Dict
-        return [
-            {"text": result["text"], "score": result["score"]}
-            for result in semantic_results[:k]
-        ]
+        # Return top k semantic results with normalized semantic scores only
+        sem_raw_fallback = {r["text"]: float(r["score"]) for r in semantic_results}
+        sem = _minmax_norm(sem_raw_fallback)
+        merged_fallback: list[dict[str, Any]] = []
+        for text, s in sem.items():
+            final_score = _clamp01(alpha * s + (1 - alpha) * 0.0)
+            merged_fallback.append(
+                {
+                    "id": f"{file_id or '_all'}:{abs(zlib.adler32(text.encode()))}",
+                    "text": text,
+                    "bm25": 0.0,
+                    "semantic": float(s),
+                    "final_score": float(final_score),
+                }
+            )
+        merged_fallback.sort(key=lambda r: r["final_score"], reverse=True)
+        return merged_fallback[:k]
 
     bm25, tokenized_docs, metadata = bm25_data
 
     # Tokenize query for BM25
     tokenized_query = _tokenize(query)
 
-    # Get BM25 scores for all documents in the index
+    # Get BM25 scores for all documents in the index (raw, unnormalized)
     bm25_scores = bm25.get_scores(tokenized_query)
-    bm25_scores_normalized = _normalize_bm25_scores(np.array(bm25_scores))
 
     # Create a mapping from text to metadata index
     text_to_index = {str(meta["text"]): idx for idx, meta in enumerate(metadata)}
 
-    # Combine semantic and BM25 scores
-    combined_results = []
-    seen_texts = set()
+    # Build raw score dicts keyed by text
+    bm25_raw: dict[str, float] = {}
+    for idx, meta in enumerate(metadata):
+        txt = str(meta["text"])
+        try:
+            bm25_raw[txt] = float(bm25_scores[idx])
+        except Exception:
+            bm25_raw[txt] = 0.0
 
-    for sem_result in semantic_results:
-        text = sem_result["text"]
-        sem_score = sem_result["score"]
+    sem_raw: dict[str, float] = {r["text"]: float(r["score"]) for r in semantic_results}
 
-        # Get BM25 score for this text
-        if text in text_to_index:
-            doc_idx = text_to_index[text]
-            bm25_score = float(bm25_scores_normalized[doc_idx])
+    # Normalize both to [0, 1]
+    bm25_norm = _minmax_norm(bm25_raw)
+    sem_norm = _minmax_norm(sem_raw)
+
+    # Merge on union of texts
+    ids_set = set(bm25_norm) | set(sem_norm)
+    merged: list[dict[str, Any]] = []
+    for key_text in ids_set:
+        b = float(bm25_norm.get(key_text, 0.0))
+        s = float(sem_norm.get(key_text, 0.0))
+        final_score = _clamp01(alpha * s + (1 - alpha) * b)
+        doc_idx = text_to_index.get(key_text)
+        if doc_idx is not None and 0 <= doc_idx < len(metadata):
+            fid = str(metadata[doc_idx].get("file_id", file_id or ""))
+            stable_id = f"{fid}:{doc_idx}"
         else:
-            # Text not in BM25 index (shouldn't happen, but handle gracefully)
-            logger.debug(f"Text not found in BM25 index: {text[:50]}...")
-            bm25_score = 0.0
+            stable_id = f"{file_id or '_all'}:{abs(zlib.adler32(key_text.encode()))}"
 
-        # Combine scores
-        combined_score = _combine_scores(
-            np.array([sem_score]), np.array([bm25_score]), alpha
-        )[0]
-
-        # Avoid duplicates
-        if text not in seen_texts:
-            combined_results.append(
-                {
-                    "text": text,
-                    "score": float(combined_score),
-                }
-            )
-            seen_texts.add(text)
+        merged.append(
+            {
+                "id": stable_id,
+                "text": key_text,
+                "bm25": b,
+                "semantic": s,
+                "final_score": float(final_score),
+            }
+        )
 
     # Sort by combined score (descending) and return top k
-    combined_results.sort(key=lambda x: x["score"], reverse=True)  # type: ignore[arg-type,return-value]
-    return combined_results[:k]
+    merged.sort(key=lambda r: r["final_score"], reverse=True)
+    return merged[:k]
+
+
+def search_hybrid_mmr(
+    *,
+    query: str,
+    question_embedding: list[float],
+    file_id: Optional[str] = None,
+    k: int = 6,
+    alpha: float = 0.6,
+    candidate_k: int = 30,
+    mmr_lambda: float = 0.6,
+) -> list[dict]:
+    """
+    Thin wrapper: call existing hybrid_search() for a larger pool,
+    then apply MMR to return a diversified top-k.
+    """
+    # 1) get a bigger candidate set using current hybrid_search
+    candidates = hybrid_search(
+        query=query,
+        question_embedding=question_embedding,
+        file_id=file_id,
+        k=max(candidate_k, k),
+        alpha=alpha,
+    )
+    if not candidates:
+        return []
+
+    # 2) diversify down to k
+    hits = apply_mmr_to_hits(
+        hits=candidates,
+        query_vector=question_embedding,
+        k=k,
+        mmr_lambda=mmr_lambda,
+    )
+    return hits
 
 
 def clear_bm25_cache(file_id: Optional[str] = None) -> None:

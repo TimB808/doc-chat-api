@@ -1,11 +1,13 @@
 import os
-from typing import Any, Dict, List, Optional, TypedDict
+from functools import partial
+from typing import Any, Optional, TypedDict
 
+import anyio
 import lancedb
 import numpy as np
 
 from app.core.constants import EMBEDDINGS_TABLE, LANCEDB_PATH
-from app.core.hybrid_search import hybrid_search as _hybrid_search
+from app.core.hybrid_search import search_hybrid_mmr as _search_hybrid_mmr
 
 
 class SearchResult(TypedDict):
@@ -47,9 +49,8 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 def query_embeddings(
     question_embedding: list[float], file_id: Optional[str] = None, top_k: int = 5
-) -> list[SearchResult]:
+) -> list[dict[str, Any]]:
     """Query document embeddings to find most relevant text chunks."""
-
     db = lancedb.connect(LANCEDB_PATH)
     table = db.open_table(EMBEDDINGS_TABLE)
     query_vector = np.array(question_embedding, dtype=np.float32)
@@ -60,26 +61,38 @@ def query_embeddings(
         if df.empty:
             return []
 
-        df["relevance"] = df["vector"].apply(
+        # Cosine similarity in [-1,1] -> map to [0,1] for consistency
+        df["relevance_raw"] = df["vector"].apply(
             lambda v: cosine_similarity(query_vector, np.array(v))
         )
+        df["relevance"] = (df["relevance_raw"] + 1.0) / 2.0
         df = df.sort_values(by="relevance", ascending=False).head(top_k)
+
     else:
         # Use LanceDB native search
-        search_query = table.search(query_vector, vector_column_name="vector")
-        results = search_query.limit(top_k).to_arrow().to_pandas()
-
+        results = (
+            table.search(query_vector, vector_column_name="vector")
+            .limit(top_k)
+            .to_arrow()
+            .to_pandas()
+        )
         if results.empty:
             return []
 
         if "score" in results.columns:
-            results["relevance"] = results["score"]
+            # Assume score is a similarity (higher is better)
+            results["relevance"] = results["score"].astype(float)
+
         elif "_distance" in results.columns:
-            results["relevance"] = 1 - results["_distance"]
+            # Convert distance -> bounded similarity in (0,1]
+            results["_distance"] = results["_distance"].astype(float)
+            results["relevance"] = 1.0 / (1.0 + results["_distance"])
+
         else:
             raise ValueError(
                 "No similarity score found in results. Expected 'score' or '_distance'."
             )
+
         df = results
 
     return [
@@ -90,36 +103,20 @@ def query_embeddings(
 
 async def hybrid_search(
     query: str,
-    question_embedding: List[float],
+    question_embedding: list[float],
     file_id: Optional[str] = None,
     k: int = 10,
     alpha: float = 0.5,
-) -> List[Dict[str, Any]]:
-    """Perform hybrid search combining semantic and keyword search.
-
-    This method delegates to the hybrid_search module which combines:
-    - Semantic search via LanceDB vector similarity
-    - Keyword search via BM25 (Okapi BM25 algorithm)
-
-    Args:
-        query: The search query string (used for BM25 keyword search).
-        question_embedding: The embedding vector for the query (used for semantic search).
-        file_id: Optional file ID to filter documents.
-        k: Number of top results to return. Defaults to 10.
-        alpha: Weight for semantic scores (0.5 = equal weight, higher = more semantic).
-            Defaults to 0.5. Must be between 0 and 1.
-
-    Returns:
-        List of result dictionaries with keys: 'text', 'score'.
-        Results are sorted by combined score (descending).
-
-    Note:
-        Falls back to vector-only search if BM25 index is unavailable.
-    """
-    return _hybrid_search(
+) -> list[dict[str, Any]]:
+    """Perform hybrid + MMR search (threaded for non-blocking behaviour)."""
+    fn = partial(
+        _search_hybrid_mmr,
         query=query,
         question_embedding=question_embedding,
         file_id=file_id,
         k=k,
         alpha=alpha,
+        candidate_k=max(4 * k, 24),
+        mmr_lambda=0.6,
     )
+    return await anyio.to_thread.run_sync(fn)
