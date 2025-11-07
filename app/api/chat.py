@@ -1,11 +1,11 @@
 import logging
 import os
-from typing import Annotated
+from typing import Annotated, Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from openai import OpenAI, OpenAIError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.vector_store import hybrid_search, query_embeddings
 
@@ -26,13 +26,28 @@ router = APIRouter()
 
 class ChatRequest(BaseModel):
     question: str = Field(..., description="The question to ask about the document")
-    file_id: str = Field(..., description="ID of the document to query")
+    # if omitted/blank, search across ALL documents
+    file_id: Optional[str] = Field(
+        None,
+        description="ID of the document to query; if omitted, search across all documents",
+    )
     alpha: float = Field(
         0.5,
         ge=0.0,
         le=1.0,
         description="0=BM25-only, 1=semantic-only (default 0.5 = hybrid)",
     )
+
+    # normalise "" or whitespace to None
+    @field_validator("file_id", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
 
 
 class ContextChunk(BaseModel):
@@ -113,31 +128,41 @@ async def chat(request: ChatRequest) -> ChatResponse:
     try:
         if not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
-        if not request.file_id.strip():
-            raise HTTPException(status_code=400, detail="file_id cannot be empty")
 
-        # 1) Embed the question (semantic side still needed for hybrid)
+        # 1) Embed the question
         question_embedding = get_embedding(request.question)
 
-        # 2) Prefer HYBRID search; fall back to vector-only if anything fails
-        try:
-            context_chunks = await hybrid_search(
-                query=request.question,
-                question_embedding=question_embedding,
-                file_id=request.file_id,
-                k=5,
-                alpha=request.alpha,
-            )
-        except Exception as e:
-            logger.exception("hybrid_search failed; falling back to vector-only: %s", e)
-            context_chunks = query_embeddings(
-                question_embedding=question_embedding,
-                file_id=request.file_id,
-                top_k=5,
-            )
+        # 2) Retrieval
+        context_chunks = []  # type: ignore[var-annotated]
 
-        if not context_chunks:
-            # Fallback: if file-specific search returns nothing, try searching across all documents
+        if request.file_id:
+            # STRICT file-scoped search
+            try:
+                context_chunks = await hybrid_search(
+                    query=request.question,
+                    question_embedding=question_embedding,
+                    file_id=request.file_id,
+                    k=5,
+                    alpha=request.alpha,
+                )
+            except Exception as e:
+                logger.exception(
+                    "hybrid_search (scoped) failed; falling back to vector-only: %s", e
+                )
+                context_chunks = query_embeddings(
+                    question_embedding=question_embedding,
+                    file_id=request.file_id,
+                    top_k=5,
+                )
+
+            if not context_chunks:
+                # strict: do NOT search across all docs when a file_id was given
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No relevant content found for file_id: {request.file_id}",
+                )
+        else:
+            # Global search across ALL docs (only when file_id is empty/None)
             try:
                 context_chunks = await hybrid_search(
                     query=request.question,
@@ -146,8 +171,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     k=5,
                     alpha=request.alpha,
                 )
-            except Exception:
-                # If hybrid fallback fails, try vector-only across all documents
+            except Exception as e:
+                logger.exception(
+                    "hybrid_search (global) failed; falling back to vector-only: %s", e
+                )
                 context_chunks = query_embeddings(
                     question_embedding=question_embedding,
                     file_id=None,
@@ -157,7 +184,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if not context_chunks:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"No relevant content found for file_id: {request.file_id}",
+                    detail="No relevant content found across all documents.",
                 )
 
         # Optional: debug top-5 scores while testing
@@ -175,27 +202,25 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # 3) Build context string
         context_text = "\n\n".join(chunk["text"] for chunk in context_chunks)[:12000]
 
-        # 4) LLM answer (keep current model for now)
+        # 4) LLM answer
         answer = get_chat_completion(context_text, request.question)
 
-        # 5) Pydantic response
+        # 5) Response
         def _clamp01(x: float) -> float:
-            """Ensure score is in [0,1] range for Pydantic validation."""
             return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
 
         context = [
             ContextChunk(
                 text=chunk["text"],
                 score=_clamp01(
-                    float(
-                        chunk.get("final_score") or chunk.get("score", 0.0)  # preferred
-                    )
+                    float(chunk.get("final_score") or chunk.get("score", 0.0))
                 ),
             )
             for chunk in context_chunks
         ]
 
         return ChatResponse(answer=answer, context=context)
+
     except HTTPException:
         raise
     except Exception as e:

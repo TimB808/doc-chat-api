@@ -12,6 +12,7 @@ Where α (alpha) defaults to 0.5 and controls the balance between semantic and k
 
 import logging
 import math
+import os
 import zlib
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -25,6 +26,10 @@ if TYPE_CHECKING:
     from app.core.vector_store import query_embeddings  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+# Environment variable defaults
+MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.6"))
+HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA", "0.6"))
 
 # In-memory cache for BM25 indexes per file_id
 # Cache stores (bm25, tokenized_docs, metadata, fingerprint) tuples
@@ -235,7 +240,10 @@ def hybrid_search(
     question_embedding: list[float],
     file_id: Optional[str] = None,
     k: int = 8,
-    alpha: float = 0.5,
+    alpha: Optional[float] = None,
+    use_mmr: bool = False,
+    mmr_lambda: Optional[float] = None,
+    candidate_k: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Perform hybrid search combining semantic and keyword search.
 
@@ -244,7 +252,13 @@ def hybrid_search(
         question_embedding: The embedding vector for the query (used for semantic search).
         file_id: Optional file ID to filter documents.
         k: Number of top results to return.
-        alpha: Weight for semantic scores (0.5 = equal weight, higher = more semantic).
+        alpha: Weight for semantic scores (defaults to HYBRID_ALPHA env var or 0.6).
+            Higher = more semantic, lower = more keyword-based.
+        use_mmr: If True, apply Maximal Marginal Relevance for result diversification.
+        mmr_lambda: MMR lambda parameter (defaults to MMR_LAMBDA env var or 0.6).
+            Higher = more relevance, lower = more diversity.
+        candidate_k: Number of candidates to consider before MMR (defaults to max(4*k, 24)).
+            Only used when use_mmr=True.
 
     Returns:
         List of result dictionaries with keys: 'text', 'score', and optionally 'file_id'.
@@ -252,9 +266,30 @@ def hybrid_search(
 
     Note:
         If BM25 index cannot be built, falls back to vector-only search.
+        Environment variables MMR_LAMBDA and HYBRID_ALPHA can be used to set defaults.
     """
+    # Use environment variable default if alpha not provided
+    if alpha is None:
+        alpha = HYBRID_ALPHA
+
     if not 0 <= alpha <= 1:
         raise ValueError("Alpha must be between 0 and 1")
+
+    # If MMR is enabled, use search_hybrid_mmr
+    if use_mmr:
+        if mmr_lambda is None:
+            mmr_lambda = MMR_LAMBDA
+        if candidate_k is None:
+            candidate_k = max(6 * k, 40)  # give MMR more headroom
+        return search_hybrid_mmr(
+            query=query,
+            question_embedding=question_embedding,
+            file_id=file_id,
+            k=k,
+            alpha=alpha,
+            candidate_k=candidate_k,
+            mmr_lambda=mmr_lambda,
+        )
 
     # Runtime import to avoid circular dependency
     # TYPE_CHECKING import above is for type annotations only (not executed at runtime)

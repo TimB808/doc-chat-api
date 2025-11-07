@@ -7,7 +7,13 @@ import lancedb
 import numpy as np
 
 from app.core.constants import EMBEDDINGS_TABLE, LANCEDB_PATH
-from app.core.hybrid_search import search_hybrid_mmr as _search_hybrid_mmr
+from app.core.hybrid_search import (
+    HYBRID_ALPHA,
+    MMR_LAMBDA,
+)
+from app.core.hybrid_search import (
+    search_hybrid_mmr as _search_hybrid_mmr,
+)
 
 
 class SearchResult(TypedDict):
@@ -106,9 +112,25 @@ async def hybrid_search(
     question_embedding: list[float],
     file_id: Optional[str] = None,
     k: int = 10,
-    alpha: float = 0.5,
+    alpha: Optional[float] = None,
 ) -> list[dict[str, Any]]:
-    """Perform hybrid + MMR search (threaded for non-blocking behaviour)."""
+    """Perform hybrid + MMR search (threaded for non-blocking behaviour).
+
+    Args:
+        query: The search query string.
+        question_embedding: The embedding vector for the query.
+        file_id: Optional file ID to filter documents.
+        k: Number of top results to return.
+        alpha: Weight for semantic scores (defaults to HYBRID_ALPHA env var or 0.6).
+
+    Environment variables:
+        MMR_LAMBDA: MMR lambda parameter (defaults to 0.6).
+        HYBRID_ALPHA: Default alpha value (defaults to 0.6).
+    """
+    # Use environment variable default if alpha not provided
+    if alpha is None:
+        alpha = HYBRID_ALPHA
+
     fn = partial(
         _search_hybrid_mmr,
         query=query,
@@ -117,6 +139,6 @@ async def hybrid_search(
         k=k,
         alpha=alpha,
         candidate_k=max(4 * k, 24),
-        mmr_lambda=0.6,
+        mmr_lambda=MMR_LAMBDA,
     )
     return await anyio.to_thread.run_sync(fn)
