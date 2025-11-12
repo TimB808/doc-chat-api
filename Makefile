@@ -1,4 +1,4 @@
-.PHONY: run-backend run-ui lint format mypy precommit all test docker-build-local docker-build-cloud deploy clean
+.PHONY: run-backend run-ui sweep lint format mypy precommit all test docker-build-local docker-build-cloud deploy clean
 
 # Variables
 PROJECT_ID = le-wagon-data-science-376310
@@ -9,12 +9,22 @@ BACKEND_URL = https://doc-chat-api-581282400880.europe-west3.run.app
 
 # Run backend locally
 run-backend:
-	@chmod +x ./start_local.sh
-	@./start_local.sh
+	@chmod +x ./scripts/start_local.sh
+	@./scripts/start_local.sh
 
 # Run UI locally
 run-ui:
 	streamlit run app/ui/streamlit_app.py
+
+# sweep alpha and lambda values for tuning
+sweep:
+	@chmod +x ./scripts/sweep.sh
+	@FILE_ID="$(FILE_ID)" \
+	QUESTION="$(QUESTION)" \
+	ALPHAS="$(ALPHAS)" \
+	LAMBDAS="$(LAMBDAS)" \
+	DEBUG_HYBRID="$(DEBUG_HYBRID)" \
+	./scripts/sweep.sh
 
 # Code quality checks
 lint:

@@ -91,7 +91,7 @@ Default backend URL (after deployment): https://doc-chat-api-<PROJECT_ID>.europe
 Build and run the Streamlit UI container locally:
 
 ```make docker-build-ui```
-``make docker-run-ui```
+```make docker-run-ui```
 
 This serves the UI at http://localhost:8501.
 
@@ -169,11 +169,41 @@ The app supports **hybrid search** that combines semantic (vector) and keyword (
   ```
   final_score = α * semantic_score + (1 - α) * bm25_score
   ```
-  Where `α` (alpha) defaults to 0.5 and can be adjusted to balance between semantic and keyword relevance.
+  Where `α` (alpha) defaults to 0.6 (via HYBRID_ALPHA env var) or 0.5 (via API request parameter) and can be adjusted to balance between semantic and keyword relevance.
 
 The hybrid search automatically falls back to vector-only search if the BM25 index is unavailable. BM25 indexes are cached in memory for performance.
 
 To use hybrid search in the API, use `hybrid_search()` instead of `query_embeddings()`. See `app/api/chat.py` for usage examples.
+
+### Tuning & Debugging
+
+`doc-chat-api` uses a hybrid retriever (BM25 + vector) plus MMR re-ranking.
+
+- **HYBRID_ALPHA (α)** balances lexical vs semantic:
+  - Lower α → more BM25 (exact term match)
+  - Higher α → more vectors (semantic similarity)
+  - Default: `0.6` (balanced)
+  - Note: α trades BM25 vs vectors (α↓ = more lexical)
+
+- **MMR_LAMBDA (λ)** controls diversity:
+  - `1.0` → relevance only (can return near-duplicates)
+  - `0.3` → more diversity (fewer near-duplicates)
+  - Default: `0.3`
+  - Note: λ affects diversity, not raw scores
+
+#### Quick sweep (zsh-safe)
+
+```bash
+make sweep FILE_ID=<YOUR_FILE_ID> ALPHAS="0.8 0.6 0.4" LAMBDAS="1.0 0.6 0.3"
+```
+
+The sweep script tests the `/api/chat` endpoint with different combinations of α and λ values.
+
+#### Acceptance checks
+
+- Ask the same question twice → similar top chunks
+- λ=1.0 vs λ=0.3 → λ=0.3 should reduce near-dupes on multi-doc sets
+- With and without file_id → scoping works as expected
 
 ### Similarity Scores
 

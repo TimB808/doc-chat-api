@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Environment variable defaults
-MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.6"))
+MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.3"))
 HYBRID_ALPHA = float(os.getenv("HYBRID_ALPHA", "0.6"))
 
 # In-memory cache for BM25 indexes per file_id
